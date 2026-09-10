@@ -4,13 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tpv-physics-informed-inverse-design"
-version = "0.1.0"
+version = "0.2.0"
 description = "Physics-first forward modeling and inverse design research for TPV spectral filters"
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=2.0",
   "scipy>=1.12",
   "matplotlib>=3.8",
+  "pandas>=2.2",
+  "openpyxl>=3.1",
 ]
 
 [tool.setuptools.packages.find]
