@@ -2,7 +2,7 @@
 
 A physics-first research framework for modeling, optimizing, and eventually performing physics-informed inverse design of multilayer spectral filters for thermophotovoltaic (TPV) systems.
 
-The project deliberately starts with a validated forward model before introducing machine learning. The immediate objective is to create a fast and trustworthy Python pipeline that maps multilayer design variables to optical spectra and TPV performance metrics, then use that model to generate a large training dataset for surrogate modeling and inverse design.
+The project starts with a validated forward model before introducing machine learning. The immediate objective is a fast, traceable Python pipeline that maps multilayer design variables and real optical-property data to spectra and TPV performance metrics, then uses that model to generate training data for surrogate modeling and inverse design.
 
 ## Current status
 
@@ -12,59 +12,107 @@ Implemented:
 
 - Coherent Transfer Matrix Method (TMM) for planar multilayers
 - TE (s) and TM (p) polarization
-- Angle-resolved spectra
-- Unpolarized averaging
-- Lambertian hemispherical angular averaging
+- Angle-resolved and Lambertian hemispherical averaging
 - Reflectance `R(lambda)`, transmittance `T(lambda)`, absorptance `A(lambda)`
-- Energy-conservation checks, `R + T + A = 1` for lossless stacks
+- Energy-conservation checks
+- Wavelength-dependent complex refractive index `n(lambda) + i k(lambda)` per layer
+- Expandable CSV/Excel optical-material library
+- Strict material wavelength-range validation (no silent extrapolation)
 - Planck blackbody spectral exitance
 - GaSb cutoff from bandgap
 - Above-bandgap photon flux and `Jsc`
 - Ideal radiative-limit dark current `J0`
 - `Voc`, maximum-power point, fill factor, and output power density
-- Spectral efficiency, ideal cell efficiency, and a no-recycling system efficiency
+- Spectral efficiency, ideal cell efficiency, and no-recycling system efficiency
+- Automated physics/unit tests and GitHub Actions CI
+
+## Optical material library
+
+The repository currently includes processed wavelength-dependent optical constants for:
+
+| Material | Tabulated range (um) |
+|---|---:|
+| 30% porous SiO2 | 0.35–13.986 |
+| Al2O3 | 0.21–10.0 |
+| MgF2 | 0.20–10.007 |
+| SiO2 | 0.05–14.5 |
+| Ta2O5 | 0.5–1000 |
+| TiO2 | 0.120–125.123 |
+| ZnS | 0.389–12.2 |
+| ZnSe | 0.5–21.739 |
+
+Material data are organized as:
+
+```text
+data/materials/
+├── raw/          # drop new original .csv/.xlsx/.xls files here
+├── processed/    # simulation-ready wavelength_um,n,k tables
+├── manifest.json # provenance, spectral coverage, representation metadata
+└── README.md
+```
+
+To expand the simulation environment with a new optical material:
+
+```bash
+# 1. copy the source file into data/materials/raw/
+# 2. standardize all raw files
+python scripts/standardize_materials.py
+```
+
+The loader sorts and validates optical data, averages duplicate wavelength rows, and supports Excel as well as CSV. The solver refuses out-of-range material requests by default instead of extrapolating unknown optical constants.
+
+See [`data/materials/README.md`](data/materials/README.md) for the data contract and provenance rules.
 
 ## Why physics first?
 
-A neural network is only as trustworthy as the forward-physics data used to train it. For multilayer TPV filters, TMM is fast enough to evaluate large design spaces while retaining the essential wave-interference physics. That makes it a practical dataset generator before moving to surrogate models or physics-informed neural networks.
+A neural network is only as trustworthy as the forward-physics data used to train it. For multilayer TPV filters, TMM is fast enough to explore large design spaces while retaining wave-interference physics. Using measured/tabulated `n(lambda)` and `k(lambda)` also allows the model to capture material dispersion and parasitic absorption that constant-index stacks miss.
 
-## Baseline example
+## Examples
 
-The first example is a five-pair SiO2/ZrO2 quarter-wave stack designed around 2.4 um and evaluated for an 1800 K blackbody emitter and an idealized GaSb cell.
-
-> **Important:** the current material refractive indices are constant placeholders and the cell model is an ideal radiative-limit baseline. Results are not yet intended to reproduce experimental GaSb performance or thesis values. Dispersion, absorption, real EQE, non-radiative recombination, view factor, emitter emissivity, and photon recycling are planned validation steps.
-
-Run:
+Install and run:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -r requirements.txt
+```
+
+Constant-index reference case:
+
+```bash
 python examples/quarter_wave_filter.py
 ```
 
-The example writes plots into `results/` and prints the main TPV metrics.
+Wavelength-dependent complex-index case using the material library:
+
+```bash
+python examples/dispersive_material_filter.py
+```
+
+The dispersive example builds a five-pair SiO2/TiO2 quarter-wave stack using the real part of each material index at the design wavelength for initial thicknesses, then evaluates the entire spectrum with wavelength-dependent complex indices.
 
 ## Model definitions
 
-For a filter transmission spectrum `T(lambda)` and blackbody hemispherical spectral exitance `M_lambda(T_e)`, the power incident on the cell is
+For filter transmission `T(lambda)` and blackbody hemispherical spectral exitance `M_lambda(T_e)`, the power incident on the cell is
 
 ```text
 P_inc = integral T(lambda) M_lambda(T_e) d lambda
 ```
 
-The spectral efficiency used in this baseline is
+The current baseline reports
 
 ```text
 eta_spectral = P(E >= Eg) / P_inc
 ```
 
-The short-circuit current density is calculated from transmitted above-bandgap photon flux assuming a constant EQE above the bandgap. The open-circuit voltage and maximum-power point use an ideal single-diode radiative-limit model.
+Short-circuit current is calculated from transmitted above-bandgap photon flux. The electrical model is currently an ideal single-diode radiative-limit model, retained as a transparent baseline until validated GaSb EQE and recombination/loss data are incorporated.
 
 Two efficiencies are reported intentionally:
 
-- **Cell efficiency:** `Pmax / P_inc`, where `P_inc` is power transmitted through the filter to the cell.
-- **System efficiency (no recycling):** `Pmax / (sigma T_e^4)`, which treats reflected emitter power as unrecovered. A later model will explicitly include reflected-photon recycling.
+- **Cell efficiency:** `Pmax / P_inc`
+- **System efficiency (no recycling):** `Pmax / (sigma T_e^4)`
+
+The second metric does not yet recover filter-reflected photons at the emitter; explicit photon recycling is a planned system-level extension.
 
 ## Repository structure
 
@@ -74,32 +122,40 @@ Two efficiencies are reported intentionally:
 ├── ROADMAP.md
 ├── requirements.txt
 ├── pyproject.toml
+├── data/materials/
+│   ├── raw/
+│   ├── processed/
+│   ├── manifest.json
+│   └── README.md
+├── scripts/
+│   └── standardize_materials.py
 ├── examples/
-│   └── quarter_wave_filter.py
+│   ├── quarter_wave_filter.py
+│   └── dispersive_material_filter.py
 ├── src/tpv_design/
 │   ├── __init__.py
+│   ├── materials.py
 │   ├── optics.py
 │   ├── radiation.py
 │   └── tpv.py
 └── tests/
+    ├── test_materials.py
     ├── test_optics.py
     └── test_radiation_tpv.py
 ```
 
-## Near-term research milestones
+## Next validation gates
 
-1. Add wavelength-dependent complex optical constants for SiO2, ZrO2, TiO2, and HfO2.
-2. Reproduce a known quarter-wave result from prior TPV work.
-3. Reproduce graded-index and double-stack designs.
-4. Replace the ideal GaSb electrical model with validated cell data and loss mechanisms.
-5. Define parameter bounds and generate a 10,000-design pilot dataset.
-6. Train baseline surrogates before adding physics-informed losses.
-7. Perform inverse design and re-validate candidate structures with the forward model.
+1. Add a validated ZrO2 complex-index dataset so the original SiO2/ZrO2 TPV designs can be reproduced without constant-index assumptions.
+2. Reproduce a known quarter-wave filter result from prior TPV work.
+3. Reproduce graded-index and double-stack designs and quantify differences versus the earlier COMSOL model.
+4. Replace the ideal GaSb electrical model with validated EQE/J-V and non-radiative loss data.
+5. Freeze design-variable/material bounds and generate the first 10,000-design dataset.
+6. Train baseline surrogate models before introducing physics-informed losses.
+7. Perform inverse design and revalidate every candidate with the forward TMM model.
 
-See [ROADMAP.md](ROADMAP.md) for the full research plan.
+See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ## Scientific scope and limitations
 
-This repository is currently a research baseline, not a device-performance claim. The present TMM solver treats each layer as coherent, isotropic, planar, and non-magnetic. The starter example uses wavelength-independent refractive indices. The TPV electrical model is intentionally idealized to establish a transparent physics pipeline before adding empirical parameters.
-
-The next validation gate is to reproduce an independently known multilayer TPV result before any machine-learning model is trained.
+This repository is a research baseline, not a device-performance claim. The current TMM assumes coherent, planar, isotropic, non-magnetic layers. Tabulated optical constants are treated as properties of the specific datasets supplied; they are not assumed to be universal for every deposition process or temperature. The TPV electrical model remains idealized. The next major milestone is quantitative reproduction of independently known TPV filter results before machine-learning training begins.
