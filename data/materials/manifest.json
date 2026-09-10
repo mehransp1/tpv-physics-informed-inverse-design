@@ -1,0 +1,74 @@
+[
+  {
+    "name": "30porousSiO2",
+    "input_file": "30porousSiO2.csv",
+    "processed_file": "30porousSiO2.csv",
+    "rows": 975,
+    "wavelength_min_um": 0.35,
+    "wavelength_max_um": 13.986,
+    "source_note": null
+  },
+  {
+    "name": "Al2O3",
+    "input_file": "Al2O3.csv",
+    "processed_file": "Al2O3.csv",
+    "rows": 530,
+    "wavelength_min_um": 0.21,
+    "wavelength_max_um": 10.0,
+    "source_note": "Source: M. R. Querry. Optical constants, Contractor Report CRDC-CR-85034 (1985); alpha-Al2O3 sapphire, ordinary ray"
+  },
+  {
+    "name": "MgF2",
+    "input_file": "MgF2.csv",
+    "processed_file": "MgF2.csv",
+    "rows": 2772,
+    "wavelength_min_um": 0.2,
+    "wavelength_max_um": 10.00694372,
+    "source_note": "Source: Refractiveindex.info for n; k obtained using Thorlabs MgF2 data for 5 mm window"
+  },
+  {
+    "name": "SiO2",
+    "input_file": "SiO2.csv",
+    "processed_file": "SiO2.csv",
+    "rows": 1446,
+    "wavelength_min_um": 0.05,
+    "wavelength_max_um": 14.5,
+    "source_note": "Source: Optical constants of silica glass from extreme ultraviolet to far infrared at near room temperature"
+  },
+  {
+    "name": "Ta2O5",
+    "input_file": "Ta2O5.csv",
+    "processed_file": "Ta2O5.csv",
+    "rows": 500,
+    "wavelength_min_um": 0.5,
+    "wavelength_max_um": 1000.0,
+    "source_note": "Source: David Bierman"
+  },
+  {
+    "name": "TiO2",
+    "input_file": "TiO2.csv",
+    "processed_file": "TiO2.csv",
+    "rows": 1208,
+    "wavelength_min_um": 0.120181141,
+    "wavelength_max_um": 125.1227623,
+    "source_note": "Source: refractiveindex.info Siefke 2016 thin film"
+  },
+  {
+    "name": "ZnS",
+    "input_file": "ZnS.csv",
+    "processed_file": "ZnS.csv",
+    "rows": 97,
+    "wavelength_min_um": 0.389,
+    "wavelength_max_um": 12.2,
+    "source_note": "Source: refractiveindex.info for n; ZnS datasheet transmissions for k"
+  },
+  {
+    "name": "ZnSe",
+    "input_file": "ZnSe.csv",
+    "processed_file": "ZnSe.csv",
+    "rows": 278,
+    "wavelength_min_um": 0.5,
+    "wavelength_max_um": 21.7391,
+    "source_note": "Source: refractiveindex.info n: Querry; k: fit from Thorlabs"
+  }
+]
