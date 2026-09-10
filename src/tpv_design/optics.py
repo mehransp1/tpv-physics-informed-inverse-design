@@ -1,8 +1,8 @@
 """Transfer-matrix optics for planar multilayer spectral filters.
 
 The implementation uses the characteristic-matrix formulation for coherent,
-isotropic, non-magnetic layers. Thicknesses correspond only to the internal
-finite layers; the incident and substrate media are semi-infinite.
+isotropic, non-magnetic layers. Each layer may use either a constant complex
+index or a wavelength-dependent complex-index array aligned to wavelength_m.
 """
 from __future__ import annotations
 
@@ -10,13 +10,13 @@ from typing import Iterable, Literal
 import numpy as np
 
 Polarization = Literal["s", "p"]
+IndexSpec = complex | float | np.ndarray | Iterable[complex]
 
 
 def _cos_theta(n0: complex, theta0_rad: float, n: complex) -> complex:
     """Return cos(theta) from Snell's law with a forward-propagating branch."""
     sin_theta = n0 * np.sin(theta0_rad) / n
     cos_theta = np.sqrt(1 - sin_theta**2 + 0j)
-    # Choose branch corresponding to forward propagation / decay.
     if np.real(cos_theta) < 0:
         cos_theta = -cos_theta
     if np.real(cos_theta) == 0 and np.imag(cos_theta) < 0:
@@ -32,9 +32,40 @@ def _admittance(n: complex, cos_theta: complex, pol: Polarization) -> complex:
     raise ValueError("pol must be 's' (TE) or 'p' (TM)")
 
 
+def _prepare_layer_index_grid(
+    wavelength_m: np.ndarray,
+    n_layers: Iterable[IndexSpec],
+) -> np.ndarray:
+    """Return complex indices with shape (n_wavelengths, n_layers)."""
+    specs = list(n_layers)
+    if not specs:
+        return np.empty((len(wavelength_m), 0), dtype=complex)
+
+    columns: list[np.ndarray] = []
+    for i, spec in enumerate(specs):
+        arr = np.asarray(spec, dtype=complex)
+        if arr.ndim == 0:
+            arr = np.full(len(wavelength_m), complex(arr), dtype=complex)
+        elif arr.ndim == 1 and len(arr) == len(wavelength_m):
+            arr = arr.astype(complex, copy=False)
+        else:
+            raise ValueError(
+                f"Layer {i} index must be a scalar or a 1D array with "
+                f"length {len(wavelength_m)}"
+            )
+        if np.any(~np.isfinite(arr.real)) or np.any(~np.isfinite(arr.imag)):
+            raise ValueError(f"Layer {i} refractive index contains non-finite values")
+        if np.any(arr.imag < -1e-15):
+            raise ValueError(
+                "This project uses n_complex = n + i*k with k >= 0 for absorption"
+            )
+        columns.append(arr)
+    return np.column_stack(columns)
+
+
 def multilayer_rt(
     wavelength_m: Iterable[float] | np.ndarray,
-    n_layers: Iterable[complex],
+    n_layers: Iterable[IndexSpec],
     d_layers_m: Iterable[float],
     *,
     n_incident: complex = 1.0,
@@ -42,36 +73,19 @@ def multilayer_rt(
     angle_deg: float = 0.0,
     pol: Polarization = "s",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Compute R, T, A spectra for a coherent multilayer.
+    """Compute coherent multilayer R, T, A spectra.
 
-    Parameters
-    ----------
-    wavelength_m:
-        Vacuum wavelengths in meters.
-    n_layers:
-        Refractive index of each finite layer. Values may be complex but are
-        assumed wavelength independent in this baseline model.
-    d_layers_m:
-        Physical thickness of each finite layer in meters.
-    n_incident, n_substrate:
-        Semi-infinite incident and substrate refractive indices.
-    angle_deg:
-        Incidence angle in degrees in the incident medium.
-    pol:
-        's' for TE, 'p' for TM.
-
-    Returns
-    -------
-    R, T, A : np.ndarray
-        Power reflectance, transmittance, and absorptance.
+    ``n_layers`` accepts a scalar complex index for a nondispersive layer or a
+    one-dimensional complex array for a dispersive/absorbing layer. Arrays must
+    align one-to-one with ``wavelength_m``.
     """
     wavelength_m = np.asarray(wavelength_m, dtype=float)
-    n_layers = np.asarray(list(n_layers), dtype=complex)
     d_layers_m = np.asarray(list(d_layers_m), dtype=float)
 
     if wavelength_m.ndim != 1 or np.any(wavelength_m <= 0):
         raise ValueError("wavelength_m must be a 1D array of positive values")
-    if len(n_layers) != len(d_layers_m):
+    n_grid = _prepare_layer_index_grid(wavelength_m, n_layers)
+    if n_grid.shape[1] != len(d_layers_m):
         raise ValueError("n_layers and d_layers_m must have the same length")
     if np.any(d_layers_m <= 0):
         raise ValueError("all finite layer thicknesses must be positive")
@@ -84,17 +98,20 @@ def multilayer_rt(
     eta0 = _admittance(n_incident, cos0, pol)
     etas = _admittance(n_substrate, coss, pol)
 
-    cos_layers = np.array([_cos_theta(n_incident, theta0, n) for n in n_layers])
-    eta_layers = np.array([
-        _admittance(n, ct, pol) for n, ct in zip(n_layers, cos_layers)
-    ])
-
     R = np.empty_like(wavelength_m)
     T = np.empty_like(wavelength_m)
 
     for idx, lam in enumerate(wavelength_m):
+        n_at_lambda = n_grid[idx]
+        cos_layers = np.array([
+            _cos_theta(n_incident, theta0, n) for n in n_at_lambda
+        ])
+        eta_layers = np.array([
+            _admittance(n, ct, pol) for n, ct in zip(n_at_lambda, cos_layers)
+        ])
+
         M = np.eye(2, dtype=complex)
-        for n, d, ct, eta in zip(n_layers, d_layers_m, cos_layers, eta_layers):
+        for n, d, ct, eta in zip(n_at_lambda, d_layers_m, cos_layers, eta_layers):
             delta = 2 * np.pi * n * d * ct / lam
             c = np.cos(delta)
             s = np.sin(delta)
@@ -106,51 +123,39 @@ def multilayer_rt(
         B = M[0, 0] + M[0, 1] * etas
         C = M[1, 0] + M[1, 1] * etas
         denom = eta0 * B + C
-
         r = (eta0 * B - C) / denom
         t = 2 * eta0 / denom
 
         R[idx] = float(np.real_if_close(abs(r) ** 2))
-        # Power-flux correction for dissimilar incident/substrate media.
         T[idx] = float(np.real(np.real(etas) / np.real(eta0) * abs(t) ** 2))
 
     A = 1.0 - R - T
-    # Remove harmless floating-point noise for lossless stacks.
     A[np.abs(A) < 1e-12] = 0.0
     return R, T, A
 
 
 def unpolarized_rt(
     wavelength_m: Iterable[float] | np.ndarray,
-    n_layers: Iterable[complex],
+    n_layers: Iterable[IndexSpec],
     d_layers_m: Iterable[float],
     **kwargs,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Average TE and TM power spectra for unpolarized light."""
-    Rs, Ts, As = multilayer_rt(
-        wavelength_m, n_layers, d_layers_m, pol="s", **kwargs
-    )
-    Rp, Tp, Ap = multilayer_rt(
-        wavelength_m, n_layers, d_layers_m, pol="p", **kwargs
-    )
+    Rs, Ts, As = multilayer_rt(wavelength_m, n_layers, d_layers_m, pol="s", **kwargs)
+    Rp, Tp, Ap = multilayer_rt(wavelength_m, n_layers, d_layers_m, pol="p", **kwargs)
     return 0.5 * (Rs + Rp), 0.5 * (Ts + Tp), 0.5 * (As + Ap)
 
 
 def hemispherical_rt(
     wavelength_m: Iterable[float] | np.ndarray,
-    n_layers: Iterable[complex],
+    n_layers: Iterable[IndexSpec],
     d_layers_m: Iterable[float],
     *,
     angles_deg: Iterable[float] | np.ndarray | None = None,
     n_incident: complex = 1.0,
     n_substrate: complex = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Lambertian, unpolarized hemispherical average of R, T, A.
-
-    The angular weighting is proportional to sin(theta) cos(theta), appropriate
-    for integrating radiance over a hemisphere. The grid excludes 90 degrees
-    to avoid the grazing-incidence singularity.
-    """
+    """Lambertian, unpolarized hemispherical average of R, T, A."""
     if angles_deg is None:
         angles_deg = np.linspace(0.0, 85.0, 36)
     angles_deg = np.asarray(list(angles_deg), dtype=float)
@@ -179,7 +184,6 @@ def hemispherical_rt(
     R_by_angle = np.asarray(R_by_angle)
     T_by_angle = np.asarray(T_by_angle)
     A_by_angle = np.asarray(A_by_angle)
-
     norm = np.trapezoid(weights, theta)
     R_h = np.trapezoid(R_by_angle * weights[:, None], theta, axis=0) / norm
     T_h = np.trapezoid(T_by_angle * weights[:, None], theta, axis=0) / norm
